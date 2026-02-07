@@ -72,7 +72,7 @@ export class XAutomation {
     /**
      * Executes a high-level goal using AI Vision
      */
-    async executeTaskTarget(goal: string): Promise<boolean> {
+    async executeTaskTarget(goal: string, taskId?: string, supabase?: any): Promise<boolean> {
         const page = this.browserManager.getPage();
         if (!page) throw new Error('Browser not started');
 
@@ -89,13 +89,31 @@ export class XAutomation {
         while (steps < maxSteps) {
             console.log(`Step ${steps + 1}/${maxSteps}: Analyzing page...`);
 
-            // 1. Decide next action
+            // 1. Decide next action & Capture Screenshot
+            const screenshotBuffer = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 50 });
             const decision = await ai.decideNextAction(page, goal, history);
+
             console.log(`AI Decision:`, JSON.stringify(decision, null, 2));
+
+            // 2. Save Step to DB if taskId and supabase provided
+            if (taskId && supabase) {
+                const screenshotString = `data:image/jpeg;base64,${screenshotBuffer}`;
+
+                // Do not await this to keep speed up, catch errors
+                supabase.from('task_steps').insert({
+                    task_id: taskId,
+                    step_number: steps + 1,
+                    action_type: decision.action,
+                    description: decision.reasoning,
+                    screenshot: screenshotString
+                }).then(({ error }: any) => {
+                    if (error) console.error('Failed to save step:', error);
+                });
+            }
 
             history.push(decision.action);
 
-            // 2. Handle terminal states
+            // 3. Handle terminal states
             if (decision.action === 'done') {
                 console.log('Task completed successfully!');
                 return true;
@@ -106,10 +124,10 @@ export class XAutomation {
                 return false;
             }
 
-            // 3. Perform action
+            // 4. Perform action
             await this.performAction(page, decision);
 
-            // 4. Wait for network idle or a bit of time for UI updates
+            // 5. Wait for network idle or a bit of time for UI updates
             const waitTime = 2000 + Math.random() * 2000;
             await new Promise(r => setTimeout(r, waitTime));
             steps++;

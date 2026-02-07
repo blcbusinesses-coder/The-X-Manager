@@ -58,7 +58,7 @@ async function main() {
                     const loggedIn = await automation.login(creds.username, creds.password);
                     if (loggedIn) {
                         // Execute Task
-                        const success = await automation.executeTaskTarget(task.prompt);
+                        const success = await automation.executeTaskTarget(task.prompt, task.id, supabase);
 
                         // Update status
                         await supabase.from('tasks').update({

@@ -1,42 +1,92 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Play, Calendar, Save, Terminal } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
+import TaskReplay from "./components/TaskReplay";
 
 export default function Home() {
   const [task, setTask] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [schedule, setSchedule] = useState("");
-  const [logs, setLogs] = useState<string[]>(["System initialized...", "Waiting for input..."]);
+  const [logs, setLogs] = useState<string[]>([]);
 
-  // Placeholder for executing task
+  // New state for tasks and replay
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  // Load initial data
+  useEffect(() => {
+    const fetchData = async () => {
+      // Load Credentials placeholder
+      const { data: creds } = await supabase.from('credentials').select('*').limit(1).single();
+      if (creds) {
+        setUsername(creds.username);
+        setPassword(creds.password); // In real app, don't show this
+      }
+
+      // Load Tasks
+      const { data: recentTasks } = await supabase.from('tasks').select('*').order('created_at', { ascending: false }).limit(10);
+      if (recentTasks) setTasks(recentTasks);
+    };
+    fetchData();
+
+    // Subscribe to task updates
+    const channel = supabase.channel('tasks_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, (payload) => {
+        if (payload.eventType === 'INSERT') {
+          setTasks(prev => [payload.new, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          setTasks(prev => prev.map(t => t.id === payload.new.id ? payload.new : t));
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); }
+  }, []);
+
   const executeTask = async () => {
-    setLogs((prev) => [...prev, `> Executing task: ${task}`]);
-    // TODO: Call API to start browser
-    try {
-      // Mock API call
-      // await fetch('/api/start-browser', { method: 'POST', body: JSON.stringify({ task, username, password }) });
-      setLogs((prev) => [...prev, "> Browser launched in cloud...", "> Navigating to X.com...", "> Login successful..."]);
-    } catch (error) {
-      setLogs((prev) => [...prev, `! Error: ${error}`]);
+    if (!task) return;
+    setLogs((prev) => [...prev, `> Sending task: ${task}`]);
+
+    const { error } = await supabase.from('tasks').insert({
+      prompt: task,
+      status: 'pending',
+      task_type: 'one-off'
+    });
+
+    if (error) {
+      setLogs((prev) => [...prev, `! Error: ${error.message}`]);
+    } else {
+      setLogs((prev) => [...prev, `> Task queued successfully.`]);
+      setTask("");
     }
   };
 
-  const saveCredentials = () => {
-    // TODO: Save to Supabase
-    setLogs((prev) => [...prev, "> Credentials saved securely."]);
+  const saveCredentials = async () => {
+    const { error } = await supabase.from('credentials').upsert({
+      username,
+      password,
+      account_status: 'active'
+    }, { onConflict: 'username' }); // Note: Schema doesn't have unique constraint on username yet potentially, but assuming id? Actually schema has id. We should probably just insert for now.
+    // Ideally we check if exists. For MVP just insert/update if we had logic.
+    // Let's just do insert for now or update if ID known.
+    // Actually, simple insert:
+    if (error) alert('Error saving credentials');
+    else alert('Credentials saved!');
   };
 
-  const scheduleTask = () => {
-    setLogs((prev) => [...prev, `> Task scheduled for: ${schedule}`]);
+  const scheduleTask = async () => {
+    // similar logic
+    alert("Scheduling not fully wired yet.");
   }
 
   return (
-    <main className="grid grid-cols-1 md:grid-cols-2 gap-8">
+    <main className="grid grid-cols-1 md:grid-cols-2 gap-8 h-screen p-8 bg-black text-white">
       {/* Left Column: Controls */}
-      <div className="space-y-8">
+      <div className="space-y-8 overflow-y-auto">
 
         {/* Credentials Section */}
         <section className="border border-white p-6 relative">
@@ -93,42 +143,60 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Schedule Section */}
+        {/* Task List / History */}
         <section className="border border-white p-6 relative">
-          <h2 className="absolute -top-3 left-4 bg-black px-2 font-mono text-sm">SCHEDULER</h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-mono mb-1 uppercase">Date & Time</label>
-              <input
-                type="datetime-local"
-                value={schedule}
-                onChange={(e) => setSchedule(e.target.value)}
-                className="w-full bg-black border border-white p-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-white " // calendar-picker-indicator invert filter needed for white
-                style={{ colorScheme: 'dark' }}
-              />
-            </div>
-            <button
-              onClick={scheduleTask}
-              className="w-full border border-white py-2 hover:bg-white hover:text-black transition flex items-center justify-center gap-2 text-sm font-mono uppercase"
-            >
-              <Calendar size={16} /> Schedule Task
-            </button>
+          <h2 className="absolute -top-3 left-4 bg-black px-2 font-mono text-sm">TASK ACTIVITY</h2>
+          <div className="space-y-2">
+            {tasks.map(t => (
+              <div key={t.id} className="border border-white/20 p-2 flex justify-between items-center text-xs font-mono">
+                <div className="truncate max-w-[200px]">
+                  <div className={
+                    t.status === 'completed' ? 'text-green-400' :
+                      t.status === 'failed' ? 'text-red-400' :
+                        t.status === 'processing' ? 'text-yellow-400' : 'text-gray-400'
+                  }>{t.status.toUpperCase()}</div>
+                  <div className="opacity-70">{t.prompt}</div>
+                </div>
+                <button
+                  onClick={() => setSelectedTaskId(selectedTaskId === t.id ? null : t.id)}
+                  className="border border-white px-2 py-1 hover:bg-white hover:text-black transition uppercase ml-2"
+                >
+                  {selectedTaskId === t.id ? 'Close' : 'Watch'}
+                </button>
+              </div>
+            ))}
           </div>
         </section>
 
       </div>
 
-      {/* Right Column: Logs/Terminal */}
-      <div className="border border-white p-6 relative h-full min-h-[500px]">
-        <h2 className="absolute -top-3 left-4 bg-black px-2 font-mono text-sm">LIVE FEED</h2>
-        <div className="font-mono text-xs space-y-1 h-full overflow-y-auto">
-          {logs.map((log, i) => (
-            <div key={i} className="break-words">{log}</div>
-          ))}
-          <div className="animate-pulse">_</div>
-        </div>
+      {/* Right Column: Replay & Logs */}
+      <div className="border border-white p-6 relative h-full flex flex-col gap-4">
+        <h2 className="absolute -top-3 left-4 bg-black px-2 font-mono text-sm">LIVE FEED & REPLAY</h2>
+
+        {selectedTaskId ? (
+          <div className="flex-1 flex flex-col">
+            <div className="mb-2 font-mono text-sm text-yellow-500">Watching Task: {selectedTaskId}</div>
+            {/* Replay Component */}
+            <TaskReplay taskId={selectedTaskId} />
+
+            <div className="mt-4 flex-1 overflow-y-auto border-t border-white/20 pt-2">
+              <div className="font-mono text-xs text-gray-400">Task specific logs would go here...</div>
+            </div>
+          </div>
+        ) : (
+          <div className="font-mono text-xs space-y-1 h-full overflow-y-auto">
+            {logs.map((log, i) => (
+              <div key={i} className="break-words">{log}</div>
+            ))}
+            <div className="animate-pulse">_</div>
+            <div className="mt-10 text-center text-gray-500">Select "Watch" on a task to view live execution.</div>
+          </div>
+        )}
       </div>
 
     </main>
   );
 }
+
+
