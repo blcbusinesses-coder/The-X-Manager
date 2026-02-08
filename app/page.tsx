@@ -146,6 +146,11 @@ export default function Home() {
         {/* Task List / History */}
         <section className="border border-white p-6 relative">
           <h2 className="absolute -top-3 left-4 bg-black px-2 font-mono text-sm">TASK ACTIVITY</h2>
+          <div className="absolute -top-3 right-4 bg-black px-2">
+            <a href="/calendar" className="text-xs font-mono border border-white px-2 py-1 hover:bg-white hover:text-black transition">
+              VIEW CALENDAR
+            </a>
+          </div>
           <div className="space-y-2">
             {tasks.map(t => (
               <div key={t.id} className="border border-white/20 p-2 flex justify-between items-center text-xs font-mono">

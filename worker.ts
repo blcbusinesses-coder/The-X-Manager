@@ -27,12 +27,13 @@ async function main() {
     // Loop to poll for tasks
     while (true) {
         try {
-            // 1. Fetch pending tasks from Supabase
-            // We select the oldest pending task
+            // 1. Fetch pending tasks from Supabase that are ready to run
+            // (schedule_time is null OR schedule_time <= now)
             const { data: tasks, error } = await supabase
                 .from('tasks')
                 .select('*')
                 .eq('status', 'pending')
+                .or(`schedule_time.is.null,schedule_time.lte.${new Date().toISOString()}`)
                 .order('created_at', { ascending: true })
                 .limit(1);
 
@@ -66,6 +67,37 @@ async function main() {
                             completed_at: new Date().toISOString(),
                             logs: success ? ['Task completed via AI'] : ['Task failed via AI']
                         }).eq('id', task.id);
+
+                        // Handle Recurrence
+                        if (success && task.recurrence) {
+                            let nextRun = new Date();
+                            if (task.recurrence === 'daily') nextRun.setDate(nextRun.getDate() + 1);
+                            if (task.recurrence === 'weekly') nextRun.setDate(nextRun.getDate() + 7);
+
+                            // Keep next run time aligned with original schedule time if possible? 
+                            // For simplicity, just add 24h from NOW. 
+                            // Better: if schedule_time existed, add to THAT.
+                            if (task.schedule_time) {
+                                const originalTime = new Date(task.schedule_time);
+                                if (task.recurrence === 'daily') originalTime.setDate(originalTime.getDate() + 1);
+                                if (task.recurrence === 'weekly') originalTime.setDate(originalTime.getDate() + 7);
+                                nextRun = originalTime;
+                                // If nextRun is still in past (because we missed multiple), skip ahead? 
+                                // MVP: just add 1 interval.
+                            }
+
+                            console.log(`Scheduling next run for ${task.recurrence} task: ${nextRun.toISOString()}`);
+
+                            await supabase.from('tasks').insert({
+                                prompt: task.prompt,
+                                status: 'pending',
+                                task_type: 'recurring',
+                                recurrence: task.recurrence,
+                                schedule_time: nextRun.toISOString(),
+                                user_id: task.user_id
+                            });
+                        }
+
                     } else {
                         console.error("Login failed for task", task.id);
                         await supabase.from('tasks').update({ status: 'failed', logs: ['Login failed'] }).eq('id', task.id);
