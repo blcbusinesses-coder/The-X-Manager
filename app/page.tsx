@@ -66,16 +66,31 @@ export default function Home() {
   };
 
   const saveCredentials = async () => {
-    const { error } = await supabase.from('credentials').upsert({
-      username,
-      password,
-      account_status: 'active'
-    }, { onConflict: 'username' }); // Note: Schema doesn't have unique constraint on username yet potentially, but assuming id? Actually schema has id. We should probably just insert for now.
-    // Ideally we check if exists. For MVP just insert/update if we had logic.
-    // Let's just do insert for now or update if ID known.
-    // Actually, simple insert:
-    if (error) alert('Error saving credentials');
-    else alert('Credentials saved!');
+    // Check if user exists first (since username is not unique in DB schema yet)
+    const { data: existing } = await supabase.from('credentials').select('id').eq('username', username).limit(1).single();
+
+    let result;
+    if (existing) {
+      // Update
+      result = await supabase.from('credentials').update({
+        password,
+        status: 'active' // Changed from account_status to status
+      }).eq('id', existing.id);
+    } else {
+      // Insert
+      result = await supabase.from('credentials').insert({
+        username,
+        password,
+        status: 'active'
+      });
+    }
+
+    if (result.error) {
+      console.error("Error saving:", result.error);
+      alert('Error saving credentials: ' + result.error.message);
+    } else {
+      alert('Credentials saved!');
+    }
   };
 
   const scheduleTask = async () => {
