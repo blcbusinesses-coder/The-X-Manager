@@ -34,16 +34,34 @@ export class XAutomation {
             await page.waitForSelector(usernameInputSelector, { timeout: 10000 });
             await page.type(usernameInputSelector, username, { delay: 100 });
 
-            // Click Next
-            await page.keyboard.press('Enter');
+            // Click Next (Robust Strategy)
+            const nextClicked = await page.evaluate(() => {
+                const els = Array.from(document.querySelectorAll('div[role="button"], span, button'));
+                const nextBtn = els.find(el => el.textContent?.trim() === 'Next');
+                if (nextBtn) { (nextBtn as HTMLElement).click(); return true; }
+                return false;
+            });
+            if (!nextClicked) {
+                console.log("Next button not found via text, pressing Enter...");
+                await page.keyboard.press('Enter');
+            }
 
             // Wait for password input
             const passwordInputSelector = 'input[name="password"]';
             await page.waitForSelector(passwordInputSelector, { timeout: 10000 });
             await page.type(passwordInputSelector, password, { delay: 100 });
 
-            // Click Login
-            await page.waitForSelector('div[data-testid="LoginForm_Login_Button"]', { timeout: 5000 }).then(res => res?.click()).catch(() => page.keyboard.press('Enter'));
+            // Click Login (Robust Strategy)
+            const loginClicked = await page.evaluate(() => {
+                const els = Array.from(document.querySelectorAll('div[role="button"], span, button'));
+                const loginBtn = els.find(el => el.textContent?.trim() === 'Log in');
+                if (loginBtn) { (loginBtn as HTMLElement).click(); return true; }
+                return false;
+            });
+            if (!loginClicked) {
+                console.log("Log in button not found via text, pressing Enter...");
+                await page.keyboard.press('Enter');
+            }
 
 
             // Wait for home timeline
