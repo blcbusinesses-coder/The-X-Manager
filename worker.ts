@@ -6,14 +6,16 @@ import dotenv from 'dotenv';
 dotenv.config({ path: '.env.local' });
 
 // Initialize Supabase
+// Initialize Supabase
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// USE SERVICE ROLE KEY FOR WORKER (Bypasses RLS)
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 if (!supabaseUrl || !supabaseKey) {
     console.warn("Supabase URL or Key missing. Worker may fail to connect to DB.");
 }
 
-const supabase = createClient(supabaseUrl, supabaseKey || 'placeholder');
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function main() {
     console.log("Worker started. Polling for tasks...");
